@@ -1,8 +1,7 @@
 streamlit
 google-cloud-vision
 pillow
-pdf2image
-python-docx
 pandas
-openpyxl
+python-docx
 langdetect
+openpyxl
