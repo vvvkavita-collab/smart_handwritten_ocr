@@ -1,104 +1,81 @@
 import streamlit as st
 from google.cloud import vision
 from PIL import Image
-from pdf2image import convert_from_bytes
-from docx import Document
 import pandas as pd
 import io
+from docx import Document
 from langdetect import detect
 
-st.set_page_config(
-    page_title="Smart Handwritten OCR",
-    layout="wide"
-)
+st.set_page_config(page_title="Smart Handwritten OCR", layout="wide")
 
 st.title("🧠 Smart Handwritten OCR (Image / PDF)")
 st.caption("Google Vision OCR | Bulk Upload | Auto Language | Word & Excel Download")
 
+# ---------- GOOGLE VISION CLIENT ----------
 client = vision.ImageAnnotatorClient()
 
+# ---------- FILE UPLOAD ----------
 uploaded_files = st.file_uploader(
-    "📤 Upload Images or PDF (Multiple allowed)",
+    "📤 Upload Handwritten Images / PDFs",
     type=["jpg", "jpeg", "png", "pdf"],
     accept_multiple_files=True
 )
 
-def extract_text_from_image(image_bytes):
-    image = vision.Image(content=image_bytes)
-    response = client.document_text_detection(image=image)
-    return response.full_text_annotation.text
-
-all_text = ""
-
+# ---------- PROCESS BUTTON ----------
 if uploaded_files:
-    if st.button("🚀 Process Files"):
-        with st.spinner("Extracting text using Google Vision OCR..."):
-            for file in uploaded_files:
-                if file.type == "application/pdf":
-                    pages = convert_from_bytes(file.read())
-                    for page in pages:
-                        img_byte_arr = io.BytesIO()
-                        page.save(img_byte_arr, format='PNG')
-                        text = extract_text_from_image(img_byte_arr.getvalue())
-                        all_text += text + "\n"
-                else:
-                    img = Image.open(file)
-                    img_byte_arr = io.BytesIO()
-                    img.save(img_byte_arr, format='PNG')
-                    text = extract_text_from_image(img_byte_arr.getvalue())
-                    all_text += text + "\n"
+    if st.button("🚀 Process OCR"):
+        all_results = []
 
-        st.success("OCR Completed Successfully!")
+        for file in uploaded_files:
+            st.write(f"📄 Processing: **{file.name}**")
 
-        # 🌐 Language Detection
-        try:
-            lang = detect(all_text)
-        except:
-            lang = "Unknown"
+            image = Image.open(file)
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format="PNG")
 
-        st.subheader("🌐 Detected Language")
-        st.write(lang)
+            content = img_byte_arr.getvalue()
+            image_vision = vision.Image(content=content)
 
-        # 📝 Display Text
-        st.subheader("📝 Extracted Text")
-        st.text_area("Result", all_text, height=350)
+            response = client.document_text_detection(image=image_vision)
+            text = response.full_text_annotation.text
 
-        # 📄 Word Download
+            try:
+                language = detect(text)
+            except:
+                language = "unknown"
+
+            all_results.append({
+                "File Name": file.name,
+                "Language": language,
+                "Extracted Text": text
+            })
+
+            st.text_area("📝 Extracted Text", text, height=200)
+
+        # ---------- EXCEL DOWNLOAD ----------
+        df = pd.DataFrame(all_results)
+        excel_buffer = io.BytesIO()
+        df.to_excel(excel_buffer, index=False)
+
+        st.download_button(
+            "⬇ Download Excel",
+            excel_buffer.getvalue(),
+            file_name="handwritten_ocr.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        # ---------- WORD DOWNLOAD ----------
         doc = Document()
-        for line in all_text.split("\n"):
-            doc.add_paragraph(line)
+        for row in all_results:
+            doc.add_heading(row["File Name"], level=2)
+            doc.add_paragraph(row["Extracted Text"])
 
         word_buffer = io.BytesIO()
         doc.save(word_buffer)
 
         st.download_button(
-            "⬇️ Download as Word",
-            data=word_buffer.getvalue(),
-            file_name="OCR_Text.docx",
+            "⬇ Download Word",
+            word_buffer.getvalue(),
+            file_name="handwritten_ocr.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-
-        # 📊 Excel (Table Auto Columns)
-        rows = []
-        for line in all_text.split("\n"):
-            parts = [p for p in line.split(" ") if p.strip()]
-            if len(parts) > 1:
-                rows.append(parts)
-
-        if rows:
-            max_len = max(len(r) for r in rows)
-            for r in rows:
-                r.extend([""] * (max_len - len(r)))
-
-            df = pd.DataFrame(rows)
-            df.columns = [f"Column_{i+1}" for i in range(df.shape[1])]
-
-            excel_buffer = io.BytesIO()
-            df.to_excel(excel_buffer, index=False)
-
-            st.download_button(
-                "⬇️ Download as Excel",
-                data=excel_buffer.getvalue(),
-                file_name="OCR_Table.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
