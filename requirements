@@ -1,0 +1,8 @@
+streamlit
+google-cloud-vision
+pillow
+pdf2image
+python-docx
+pandas
+openpyxl
+langdetect
